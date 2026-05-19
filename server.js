@@ -26,7 +26,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/dokumentasi', dokumentasiRoutes);
 
 app.get('/', (req, res) => {
-  res.json({ message: 'SMARTFARM API with MySQL' });
+  res.json({ message: 'SMARTFARM API is running' });
 });
 
 app.listen(PORT, () => {
