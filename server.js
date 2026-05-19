@@ -16,12 +16,14 @@ const catatanRoutes = require('./routes/catatan');
 const jadwalRoutes = require('./routes/jadwal');
 const userRoutes = require('./routes/user');
 const dokumentasiRoutes = require('./routes/dokumentasi');
+const adminRoutes = require('./routes/admin');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/catatan', catatanRoutes);
 app.use('/api/jadwal', jadwalRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/dokumentasi', dokumentasiRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/api', (req, res) => {
   res.json({ message: 'SMARTFARM API is running' });
