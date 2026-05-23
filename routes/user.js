@@ -60,4 +60,49 @@ router.put('/profile', authMiddleware, async (req, res) => {
   }
 });
 
+// CHANGE PASSWORD sendiri
+router.post('/change-password', authMiddleware, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const bcrypt = require('bcryptjs');
+
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({ 
+      error: 'Password lama dan baru harus diisi', 
+      success: false 
+    });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ 
+      error: 'Password baru minimal 6 karakter', 
+      success: false 
+    });
+  }
+
+  try {
+    // Ambil password lama dari database
+    const user = await db.query('SELECT password FROM users WHERE id = $1', [req.user.uid]);
+    
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: 'User tidak ditemukan', success: false });
+    }
+
+    // Verifikasi password lama
+    const isValid = await bcrypt.compare(oldPassword, user.rows[0].password);
+    
+    if (!isValid) {
+      return res.status(401).json({ error: 'Password lama salah', success: false });
+    }
+
+    // Hash password baru
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedPassword, req.user.uid]);
+    
+    res.json({ success: true, message: 'Password berhasil diubah' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
 module.exports = router;

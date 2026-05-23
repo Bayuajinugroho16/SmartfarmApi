@@ -64,4 +64,138 @@ router.get('/users/:id/jadwal', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
+// UPDATE petani (Edit)
+router.put('/users/:id', authMiddleware, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, lahan, status } = req.body;
+
+  if (!name && !email && !lahan && !status) {
+    return res.status(400).json({ error: 'Tidak ada data yang diupdate', success: false });
+  }
+
+  try {
+    // Build query dinamis
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (name) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name);
+    }
+    if (email) {
+      updates.push(`email = $${paramIndex++}`);
+      values.push(email);
+    }
+    if (lahan) {
+      updates.push(`lahan = $${paramIndex++}`);
+      values.push(lahan);
+    }
+    if (status) {
+      updates.push(`status = $${paramIndex++}`);
+      values.push(status);
+    }
+
+    values.push(id);
+    
+    await db.query(
+      `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex}`,
+      values
+    );
+    
+    res.json({ success: true, message: 'User berhasil diupdate' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// DELETE petani (Hapus)
+router.delete('/users/:id', authMiddleware, adminOnly, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Cek apakah user ada
+    const user = await db.query('SELECT id FROM users WHERE id = $1 AND role = $2', [id, 'petani']);
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: 'Petani tidak ditemukan', success: false });
+    }
+
+    await db.query('DELETE FROM users WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Petani berhasil dihapus' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// RESET PASSWORD petani
+router.post('/users/:id/reset-password', authMiddleware, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { newPassword } = req.body;
+  const bcrypt = require('bcryptjs');
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ 
+      error: 'Password minimal 6 karakter', 
+      success: false 
+    });
+  }
+
+  try {
+    const user = await db.query('SELECT id FROM users WHERE id = $1 AND role = $2', [id, 'petani']);
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: 'Petani tidak ditemukan', success: false });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedPassword, id]);
+    
+    res.json({ success: true, message: 'Password berhasil direset' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// STATISTIK untuk dashboard admin
+router.get('/statistik', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    // Total petani
+    const totalPetani = await db.query("SELECT COUNT(*) FROM users WHERE role = 'petani'");
+    
+    // Total petani aktif
+    const totalAktif = await db.query("SELECT COUNT(*) FROM users WHERE role = 'petani' AND status = 'Aktif'");
+    
+    // Total lahan (distinct)
+    const totalLahan = await db.query(
+      "SELECT COUNT(DISTINCT lahan) FROM users WHERE role = 'petani' AND lahan IS NOT NULL"
+    );
+    
+    // Total catatan semua petani
+    const totalCatatan = await db.query(
+      "SELECT COUNT(*) FROM catatan c JOIN users u ON c.user_id = u.id WHERE u.role = 'petani'"
+    );
+    
+    // Total jadwal semua petani
+    const totalJadwal = await db.query(
+      "SELECT COUNT(*) FROM jadwal j JOIN users u ON j.user_id = u.id WHERE u.role = 'petani'"
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        totalPetani: parseInt(totalPetani.rows[0].count),
+        totalAktif: parseInt(totalAktif.rows[0].count),
+        totalLahan: parseInt(totalLahan.rows[0].count),
+        totalCatatan: parseInt(totalCatatan.rows[0].count),
+        totalJadwal: parseInt(totalJadwal.rows[0].count)
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
 module.exports = router;
