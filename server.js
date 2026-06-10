@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken'); // ← TAMBAHKAN
 
 dotenv.config();
 
@@ -23,7 +24,6 @@ const laporanRoutes = require('./routes/laporan');
 const diskusiRoutes = require('./routes/diskusi');
 const settingsRoutes = require('./routes/settings');
 const lainnyaRoutes = require('./routes/lainnya');
-const broadcastRoutes = require('./routes/broadcast');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/catatan', catatanRoutes);
@@ -37,17 +37,8 @@ app.use('/api/laporan', laporanRoutes);
 app.use('/api/diskusi', diskusiRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api', lainnyaRoutes);
-app.use('/api/admin/broadcast', broadcastRoutes);
 
-
-app.get('/api', (req, res) => {
-  res.json({ message: 'SMARTFARM API is running' });
-});
-
-app.get('/', (req, res) => {
-  res.json({ message: 'SMARTFARM API is running' });
-});
-// BROADCAST notifikasi (tambahkan di sini)
+// ==================== BROADCAST (PAKAI JWT, BUKAN FIREBASE) ====================
 app.post('/api/admin/broadcast', async (req, res) => {
   const { title, message, targetUserId } = req.body;
   const token = req.headers.authorization?.split('Bearer ')[1];
@@ -57,19 +48,21 @@ app.post('/api/admin/broadcast', async (req, res) => {
   }
 
   try {
-    // Verifikasi token dan dapatkan user
-    const admin = await admin.auth().verifyIdToken(token);
+    // Verifikasi token JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.uid;
     
-    // Cek role admin
-    if (admin.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden', success: false });
+    // Cek role admin dari database
+    const db = require('./config/db');
+    const userResult = await db.query('SELECT role FROM users WHERE id = $1', [userId]);
+    
+    if (userResult.rows.length === 0 || userResult.rows[0].role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden - Admin only', success: false });
     }
 
     if (!title || !message) {
       return res.status(400).json({ error: 'Judul dan pesan harus diisi', success: false });
     }
-
-    const db = require('./config/db');
     
     if (targetUserId) {
       // Kirim ke petani tertentu
@@ -86,7 +79,7 @@ app.post('/api/admin/broadcast', async (req, res) => {
       
       res.json({ success: true, message: 'Notifikasi terkirim ke petani' });
     } else {
-      // Kirim ke SEMUA petani
+      // Kirim ke SEMUA petani aktif
       const users = await db.query("SELECT id FROM users WHERE role = 'petani' AND status = 'Aktif'");
       
       for (const user of users.rows) {
@@ -103,9 +96,20 @@ app.post('/api/admin/broadcast', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error(error);
+    console.error('Broadcast error:', error);
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Token tidak valid', success: false });
+    }
     res.status(500).json({ error: error.message, success: false });
   }
 });
-// Untuk Vercel serverless
+
+app.get('/api', (req, res) => {
+  res.json({ message: 'SMARTFARM API is running' });
+});
+
+app.get('/', (req, res) => {
+  res.json({ message: 'SMARTFARM API is running' });
+});
+
 module.exports = app;
