@@ -119,16 +119,19 @@ router.get('/distance', authMiddleware, async (req, res) => {
   }
 
   try {
-    // Hitung jarak menggunakan rumus Haversine
-    const distance = calculateDistance(
+    // Hitung jarak menggunakan rumus Haversine (dalam METER)
+    const distanceInMeters = calculateDistance(
       parseFloat(from_lat), 
       parseFloat(from_lng),
       parseFloat(to_lat), 
       parseFloat(to_lng)
     );
 
+    // Konversi ke Kilometer
+    const distanceInKm = distanceInMeters / 1000;
+
     // Estimasi waktu (asumsi kecepatan rata-rata 40 km/jam)
-    const durationHours = distance / 40;
+    const durationHours = distanceInKm / 40;
     const durationMinutes = Math.round(durationHours * 60);
     const durationText = durationMinutes < 60 
       ? `${durationMinutes} menit` 
@@ -137,8 +140,8 @@ router.get('/distance', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       data: {
-        distance_km: parseFloat(distance.toFixed(2)),
-        distance_meters: Math.round(distance * 1000),
+        distance_km: parseFloat(distanceInKm.toFixed(2)),
+        distance_meters: Math.round(distanceInMeters),
         duration_minutes: durationMinutes,
         duration_text: durationText,
         from: { lat: from_lat, lng: from_lng },
@@ -154,7 +157,7 @@ router.get('/distance', authMiddleware, async (req, res) => {
   }
 });
 
-// Rumus Haversine untuk hitung jarak (meter)
+// Rumus Haversine untuk hitung jarak (kembalikan dalam METER)
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000; // Radius bumi dalam meter
   const φ1 = lat1 * Math.PI / 180;
@@ -167,7 +170,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
             Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-  return R * c;
+  return R * c; // Kembalikan dalam METER
 }
 
 // ==================== SIMPAN LOKASI LAHAN ====================
