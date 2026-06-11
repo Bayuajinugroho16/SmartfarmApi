@@ -24,6 +24,7 @@ const laporanRoutes = require('./routes/laporan');
 const diskusiRoutes = require('./routes/diskusi');
 const settingsRoutes = require('./routes/settings');
 const lainnyaRoutes = require('./routes/lainnya');
+const mapsRoutes = require('./routes/maps');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/catatan', catatanRoutes);
@@ -37,6 +38,7 @@ app.use('/api/laporan', laporanRoutes);
 app.use('/api/diskusi', diskusiRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api', lainnyaRoutes);
+app.use('/api/maps', mapsRoutes);
 
 // ==================== BROADCAST (PAKAI JWT, BUKAN FIREBASE) ====================
 app.post('/api/admin/broadcast', async (req, res) => {
