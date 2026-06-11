@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
-const path = require('path');  // ← TAMBAHKAN
-const fs = require('fs');      // ← TAMBAHKAN
+// HAPUS: const path = require('path');
+// HAPUS: const fs = require('fs');
 
 dotenv.config();
 
@@ -13,17 +13,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// ==================== TAMBAHKAN: Static file serving untuk uploads ====================
-// Buat folder uploads jika belum ada
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('✅ Folder uploads created');
-}
-
-// Serve static files dari folder uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-console.log('✅ Static file serving enabled: /uploads');
+// ==================== HAPUS STATIC FILE SERVING UNTUK UPLOADS ====================
+// Di Vercel serverless, TIDAK BISA membuat folder uploads
+// Gunakan Cloudinary untuk upload file
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -54,7 +46,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api', lainnyaRoutes);
 app.use('/api/maps', mapsRoutes);
 
-// ==================== BROADCAST (PAKAI JWT, BUKAN FIREBASE) ====================
+// ==================== BROADCAST (PAKAI JWT) ====================
 app.post('/api/admin/broadcast', async (req, res) => {
   const { title, message, targetUserId } = req.body;
   const token = req.headers.authorization?.split('Bearer ')[1];
@@ -64,11 +56,9 @@ app.post('/api/admin/broadcast', async (req, res) => {
   }
 
   try {
-    // Verifikasi token JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.uid;
     
-    // Cek role admin dari database
     const db = require('./config/db');
     const userResult = await db.query('SELECT role FROM users WHERE id = $1', [userId]);
     
@@ -81,7 +71,6 @@ app.post('/api/admin/broadcast', async (req, res) => {
     }
     
     if (targetUserId) {
-      // Kirim ke petani tertentu
       const user = await db.query('SELECT id FROM users WHERE id = $1 AND role = $2', [targetUserId, 'petani']);
       if (user.rows.length === 0) {
         return res.status(404).json({ error: 'Petani tidak ditemukan', success: false });
@@ -95,7 +84,6 @@ app.post('/api/admin/broadcast', async (req, res) => {
       
       res.json({ success: true, message: 'Notifikasi terkirim ke petani' });
     } else {
-      // Kirim ke SEMUA petani aktif
       const users = await db.query("SELECT id FROM users WHERE role = 'petani' AND status = 'Aktif'");
       
       for (const user of users.rows) {
