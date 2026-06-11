@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const jwt = require('jsonwebtoken'); // ← TAMBAHKAN
+const jwt = require('jsonwebtoken');
+const path = require('path');  // ← TAMBAHKAN
+const fs = require('fs');      // ← TAMBAHKAN
 
 dotenv.config();
 
@@ -10,6 +12,18 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// ==================== TAMBAHKAN: Static file serving untuk uploads ====================
+// Buat folder uploads jika belum ada
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('✅ Folder uploads created');
+}
+
+// Serve static files dari folder uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+console.log('✅ Static file serving enabled: /uploads');
 
 // Routes
 const authRoutes = require('./routes/auth');
