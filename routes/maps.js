@@ -16,30 +16,47 @@ router.get('/reverse-geocode', authMiddleware, async (req, res) => {
   }
 
   try {
-    // Gunakan Nominatim (OpenStreetMap) - GRATIS
+    // Gunakan BigDataCloud API (gratis, tanpa API key, stabil)
     const response = await axios.get(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=id`,
+      { timeout: 10000 }
     );
 
-    const address = response.data;
+    const data = response.data;
     
+    // Format alamat
+    let fullAddress = '';
+    if (data.locality) fullAddress += data.locality;
+    if (data.city) fullAddress += fullAddress ? ', ' + data.city : data.city;
+    if (data.principalSubdivision) fullAddress += fullAddress ? ', ' + data.principalSubdivision : data.principalSubdivision;
+    if (data.countryName) fullAddress += fullAddress ? ', ' + data.countryName : data.countryName;
+    
+    if (!fullAddress) fullAddress = `${lat}, ${lng}`;
+
     res.json({
       success: true,
       data: {
-        full_address: address.display_name || '-',
-        village: address.address?.village || address.address?.suburb || '-',
-        district: address.address?.county || address.address?.city_district || '-',
-        city: address.address?.city || address.address?.town || '-',
-        province: address.address?.state || '-',
-        country: address.address?.country || '-',
-        postal_code: address.address?.postcode || '-',
+        full_address: fullAddress,
+        village: data.locality || '',
+        city: data.city || '',
+        province: data.principalSubdivision || '',
+        country: data.countryName || '',
+        postal_code: data.postcode || '',
       }
     });
   } catch (error) {
     console.error('Reverse geocode error:', error.message);
-    res.status(500).json({ 
-      error: 'Gagal reverse geocode', 
-      success: false 
+    // Fallback: kembalikan koordinat sebagai alamat
+    res.json({
+      success: true,
+      data: {
+        full_address: `${lat}, ${lng}`,
+        village: '',
+        city: '',
+        province: '',
+        country: '',
+        postal_code: '',
+      }
     });
   }
 });
@@ -57,7 +74,11 @@ router.get('/geocode', authMiddleware, async (req, res) => {
 
   try {
     const response = await axios.get(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
+      {
+        headers: { 'User-Agent': 'SMARTFARM-App/1.0' },
+        timeout: 10000
+      }
     );
 
     if (response.data && response.data.length > 0) {
