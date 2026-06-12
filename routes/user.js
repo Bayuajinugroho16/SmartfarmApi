@@ -1,13 +1,40 @@
 const express = require('express');
 const db = require('../config/db');
 const authMiddleware = require('../middleware/auth');
+const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const { v2: cloudinary } = require('cloudinary');
 const router = express.Router();
 
-// GET profil user
+// ==================== KONFIGURASI CLOUDINARY ====================
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Setup multer (memory storage) untuk upload foto profil
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(file.originalname.toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    if (extname && mimetype) {
+      cb(null, true);
+    } else {
+      cb(new Error('Hanya file gambar yang diperbolehkan'));
+    }
+  }
+});
+
+// ==================== GET PROFIL USER ====================
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT id, name, email, role, status, lahan, created_at 
+      `SELECT id, name, email, role, status, lahan, foto_url, created_at 
        FROM users WHERE id = $1`,
       [req.user.uid]
     );
@@ -31,6 +58,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
         role: user.role,
         status: user.status,
         lahan: user.lahan,
+        foto_url: user.foto_url,
         createdAt: user.created_at,
         stats: {
           totalCatatan: parseInt(catatanCount.rows[0].total),
@@ -44,7 +72,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT update profil
+// ==================== UPDATE PROFIL ====================
 router.put('/profile', authMiddleware, async (req, res) => {
   const { name, lahan } = req.body;
 
@@ -60,10 +88,9 @@ router.put('/profile', authMiddleware, async (req, res) => {
   }
 });
 
-// CHANGE PASSWORD sendiri
+// ==================== CHANGE PASSWORD ====================
 router.post('/change-password', authMiddleware, async (req, res) => {
   const { oldPassword, newPassword } = req.body;
-  const bcrypt = require('bcryptjs');
 
   if (!oldPassword || !newPassword) {
     return res.status(400).json({ 
@@ -99,6 +126,63 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedPassword, req.user.uid]);
     
     res.json({ success: true, message: 'Password berhasil diubah' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// ==================== UPLOAD FOTO PROFIL ====================
+router.post('/foto-profil', authMiddleware, upload.single('foto'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'File foto harus diupload', success: false });
+    }
+
+    // Upload ke Cloudinary
+    const base64String = req.file.buffer.toString('base64');
+    const dataUri = `data:${req.file.mimetype};base64,${base64String}`;
+    
+    const result = await cloudinary.uploader.upload(dataUri, {
+      folder: 'smartfarm/profil',
+      allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+      transformation: [{ width: 500, height: 500, crop: 'limit' }]
+    });
+
+    const cloudinaryUrl = result.secure_url;
+
+    // Update database
+    await db.query(
+      'UPDATE users SET foto_url = $1 WHERE id = $2',
+      [cloudinaryUrl, req.user.uid]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Foto profil berhasil diupload',
+      data: { foto_url: cloudinaryUrl }
+    });
+  } catch (error) {
+    console.error('Upload foto profil error:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// ==================== UPDATE FOTO PROFIL (URL) ====================
+router.put('/foto-profil', authMiddleware, async (req, res) => {
+  const { foto_url } = req.body;
+
+  if (!foto_url) {
+    return res.status(400).json({ error: 'URL foto harus diisi', success: false });
+  }
+
+  try {
+    await db.query(
+      'UPDATE users SET foto_url = $1 WHERE id = $2',
+      [foto_url, req.user.uid]
+    );
+
+    res.json({ success: true, message: 'Foto profil berhasil diupdate' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message, success: false });
