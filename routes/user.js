@@ -189,4 +189,24 @@ router.put('/foto-profil', authMiddleware, async (req, res) => {
   }
 });
 
+// routes/user.js - Tambahkan di akhir
+router.post('/fcm-token', authMiddleware, async (req, res) => {
+  const { fcm_token } = req.body;
+  
+  if (!fcm_token) {
+    return res.status(400).json({ error: 'FCM token harus diisi', success: false });
+  }
+  
+  try {
+    await db.query(
+      'UPDATE users SET fcm_token = $1 WHERE id = $2',
+      [fcm_token, req.user.uid]
+    );
+    res.json({ success: true, message: 'FCM token saved' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
 module.exports = router;
