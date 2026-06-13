@@ -3,6 +3,8 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
@@ -13,13 +15,11 @@ app.use(cors());
 app.use(express.json());
 
 // ==================== INIT FIREBASE ADMIN ====================
-const fs = require('fs');
-const path = require('path');
 let firebaseInitialized = false;
 
-// Inisialisasi Firebase Admin dari file serviceAccountKey.json
 try {
   const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+  console.log('📁 Looking for service account at:', serviceAccountPath);
   
   if (fs.existsSync(serviceAccountPath)) {
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
@@ -35,7 +35,7 @@ try {
       firebaseInitialized = true;
     }
   } else {
-    console.log('⚠️ serviceAccountKey.json not found, trying env var...');
+    console.log('⚠️ serviceAccountKey.json not found');
     
     // Fallback ke environment variable
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -110,12 +110,11 @@ app.post('/api/admin/broadcast', async (req, res) => {
       return res.status(400).json({ error: 'Judul dan pesan harus diisi', success: false });
     }
     
-    // Cek Firebase siap
     if (!firebaseInitialized) {
       console.error('⚠️ Firebase not initialized, FCM push disabled');
     }
     
-    // ========== KIRIM KE PETANI TERTENTU ==========
+    // KIRIM KE PETANI TERTENTU
     if (targetUserId) {
       const petani = await db.query('SELECT id, name, fcm_token FROM users WHERE id = $1 AND role = $2', [targetUserId, 'petani']);
       if (petani.rows.length === 0) {
@@ -140,15 +139,13 @@ app.post('/api/admin/broadcast', async (req, res) => {
         } catch (fcmError) {
           console.error('FCM error:', fcmError.message);
         }
-      } else if (!firebaseInitialized) {
-        console.log('⚠️ FCM skipped: Firebase not initialized');
       }
       
       res.json({ success: true, message: 'Notifikasi terkirim ke petani' });
       return;
     }
     
-    // ========== KIRIM KE SEMUA PETANI ==========
+    // KIRIM KE SEMUA PETANI
     const users = await db.query("SELECT id, name, fcm_token FROM users WHERE role = 'petani' AND status = 'Aktif'");
     const petaniList = users.rows || [];
     
@@ -182,12 +179,8 @@ app.post('/api/admin/broadcast', async (req, res) => {
           } catch (e) {
             console.error(`❌ FCM failed for ${user.name}:`, e.message);
           }
-        } else {
-          console.log(`⚠️ No valid token for ${user.name} (${user.id})`);
         }
       }
-    } else {
-      console.log('⚠️ Firebase not initialized, FCM push skipped');
     }
     
     console.log(`✅ Broadcast: ${petaniList.length} notif saved, ${fcmSentCount} FCM sent`);
