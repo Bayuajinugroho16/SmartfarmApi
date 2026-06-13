@@ -71,7 +71,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api', lainnyaRoutes);
 app.use('/api/maps', mapsRoutes);
 
-// ==================== BROADCAST (PAKAI JWT + FCM) ====================
+// ==================== BROADCAST (FIXED - WORKING VERSION) ====================
 app.post('/api/admin/broadcast', async (req, res) => {
   const { title, message, targetUserId } = req.body;
   const token = req.headers.authorization?.split('Bearer ')[1];
@@ -109,11 +109,11 @@ app.post('/api/admin/broadcast', async (req, res) => {
         [targetUserId, title, message, 'broadcast', false]
       );
       
-      // Kirim FCM push notification jika ada token
+      // ✅ KIRIM FCM (Pastikan token valid)
       const fcmToken = petani.rows[0].fcm_token;
-      if (fcmToken && fcmToken.length > 0) {
+      if (fcmToken && fcmToken.length > 50) {  // Token FCM minimal 50 karakter
         try {
-          await admin.messaging().send({
+          const fcmResponse = await admin.messaging().send({
             token: fcmToken,
             notification: {
               title: title,
@@ -121,10 +121,12 @@ app.post('/api/admin/broadcast', async (req, res) => {
             },
             android: { priority: 'high' },
           });
-          console.log('✅ FCM sent to petani:', targetUserId);
+          console.log('✅ FCM sent to:', targetUserId, fcmResponse);
         } catch (fcmError) {
           console.error('FCM error:', fcmError.message);
         }
+      } else {
+        console.log('⚠️ Token tidak valid untuk petani:', targetUserId);
       }
       
       res.json({ success: true, message: 'Notifikasi terkirim ke petani' });
@@ -133,15 +135,13 @@ app.post('/api/admin/broadcast', async (req, res) => {
     
     // ========== KIRIM KE SEMUA PETANI ==========
     const users = await db.query("SELECT id, fcm_token FROM users WHERE role = 'petani' AND status = 'Aktif'");
-    
-    // Pastikan users.rows adalah array
     const petaniList = users.rows || [];
     
     if (petaniList.length === 0) {
       return res.status(404).json({ error: 'Tidak ada petani aktif', success: false });
     }
     
-    // Simpan ke database untuk semua petani
+    // Simpan ke database
     for (const user of petaniList) {
       await db.query(
         `INSERT INTO notifications (user_id, title, body, type, is_read, created_at) 
@@ -149,19 +149,12 @@ app.post('/api/admin/broadcast', async (req, res) => {
         [user.id, title, message, 'broadcast', false]
       );
     }
-    console.log(`✅ Saved ${petaniList.length} notifications to database`);
     
-    // Filter token yang valid (tidak null, tidak kosong)
-    const validTokens = petaniList
-      .map(u => u.fcm_token)
-      .filter(t => t && typeof t === 'string' && t.length > 0);
-    
-    console.log(`📱 Total petani: ${petaniList.length}, Valid tokens: ${validTokens.length}`);
-    
-    // Kirim FCM ke token yang valid
-    if (validTokens.length > 0) {
-      let sentCount = 0;
-      for (const fcmToken of validTokens) {
+    // ✅ KIRIM FCM KE SEMUA PETANI (satu per satu)
+    let fcmSentCount = 0;
+    for (const user of petaniList) {
+      const fcmToken = user.fcm_token;
+      if (fcmToken && fcmToken.length > 50) {
         try {
           await admin.messaging().send({
             token: fcmToken,
@@ -171,26 +164,22 @@ app.post('/api/admin/broadcast', async (req, res) => {
             },
             android: { priority: 'high' },
           });
-          sentCount++;
+          fcmSentCount++;
         } catch (e) {
-          console.error('FCM send error:', e.message);
+          console.error(`FCM error for user ${user.id}:`, e.message);
         }
       }
-      console.log(`✅ FCM sent to ${sentCount} devices`);
-    } else {
-      console.log('⚠️ No valid FCM tokens found');
     }
+    
+    console.log(`✅ Broadcast: ${petaniList.length} notif saved, ${fcmSentCount} FCM sent`);
     
     res.json({ 
       success: true, 
-      message: `Broadcast terkirim ke ${petaniList.length} petani (${validTokens.length} via FCM push)` 
+      message: `Broadcast terkirim ke ${petaniList.length} petani (${fcmSentCount} via FCM)` 
     });
     
   } catch (error) {
     console.error('Broadcast error:', error);
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Token tidak valid', success: false });
-    }
     res.status(500).json({ error: error.message, success: false });
   }
 });
