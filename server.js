@@ -13,37 +13,49 @@ app.use(cors());
 app.use(express.json());
 
 // ==================== INIT FIREBASE ADMIN ====================
+const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 let firebaseInitialized = false;
 
+// Inisialisasi Firebase Admin dari file serviceAccountKey.json
 try {
-  if (!admin.apps.length) {
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+  
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    
+    if (!admin.apps.length) {
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-      console.log('✅ Firebase Admin initialized from env var');
+      console.log('✅ Firebase Admin initialized from file');
       firebaseInitialized = true;
-    } else if (process.env.NODE_ENV !== 'production') {
-      try {
-        const serviceAccount = require('./serviceAccountKey.json');
+    } else {
+      console.log('✅ Firebase Admin already initialized');
+      firebaseInitialized = true;
+    }
+  } else {
+    console.log('⚠️ serviceAccountKey.json not found, trying env var...');
+    
+    // Fallback ke environment variable
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      if (!admin.apps.length) {
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
         });
-        console.log('✅ Firebase Admin initialized from file');
+        console.log('✅ Firebase Admin initialized from env var');
         firebaseInitialized = true;
-      } catch (fileError) {
-        console.error('❌ Service account file not found:', fileError.message);
       }
-    } else {
-      console.error('❌ FIREBASE_SERVICE_ACCOUNT env var not set');
     }
-  } else {
-    console.log('✅ Firebase Admin already initialized');
-    firebaseInitialized = true;
   }
 } catch (error) {
   console.error('❌ Firebase Admin init error:', error.message);
+}
+
+if (!firebaseInitialized) {
+  console.error('❌ Firebase Admin failed to initialize!');
 }
 
 // Routes
