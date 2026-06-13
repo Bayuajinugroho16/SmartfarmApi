@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
+const { getMessaging } = require('firebase-admin/messaging');
 
 dotenv.config();
 
@@ -134,7 +135,7 @@ app.post('/api/admin/broadcast', async (req, res) => {
       const fcmToken = petani.rows[0].fcm_token;
       if (fcmToken && fcmToken.length > 30 && firebaseInitialized) {
         try {
-          await admin.messaging().send({
+          await getMessaging().send({
             token: fcmToken,
             notification: { title: title, body: message },
             android: { priority: 'high' },
@@ -173,7 +174,7 @@ app.post('/api/admin/broadcast', async (req, res) => {
         const fcmToken = user.fcm_token;
         if (fcmToken && fcmToken.length > 30) {
           try {
-            await admin.messaging().send({
+            await getMessaging().send({
               token: fcmToken,
               notification: { title: title, body: message },
               android: { priority: 'high' },
