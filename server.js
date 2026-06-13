@@ -3,8 +3,6 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
-// HAPUS: const path = require('path');
-// HAPUS: const fs = require('fs');
 
 dotenv.config();
 
@@ -15,32 +13,38 @@ app.use(cors());
 app.use(express.json());
 
 // ==================== INIT FIREBASE ADMIN ====================
-// Inisialisasi Firebase Admin untuk FCM Push Notification
+let firebaseInitialized = false;
+
 try {
-  // Cek apakah sudah diinisialisasi
   if (!admin.apps.length) {
-    // Untuk Vercel, gunakan environment variable
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
+      console.log('✅ Firebase Admin initialized from env var');
+      firebaseInitialized = true;
+    } else if (process.env.NODE_ENV !== 'production') {
+      try {
+        const serviceAccount = require('./serviceAccountKey.json');
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+        });
+        console.log('✅ Firebase Admin initialized from file');
+        firebaseInitialized = true;
+      } catch (fileError) {
+        console.error('❌ Service account file not found:', fileError.message);
+      }
     } else {
-      // Untuk local development
-      const serviceAccount = require('./serviceAccountKey.json');
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
+      console.error('❌ FIREBASE_SERVICE_ACCOUNT env var not set');
     }
-    console.log('✅ Firebase Admin initialized');
+  } else {
+    console.log('✅ Firebase Admin already initialized');
+    firebaseInitialized = true;
   }
 } catch (error) {
   console.error('❌ Firebase Admin init error:', error.message);
 }
-
-// ==================== HAPUS STATIC FILE SERVING UNTUK UPLOADS ====================
-// Di Vercel serverless, TIDAK BISA membuat folder uploads
-// Gunakan Cloudinary untuk upload file
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -71,7 +75,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api', lainnyaRoutes);
 app.use('/api/maps', mapsRoutes);
 
-// ==================== BROADCAST (FIXED - WORKING VERSION) ====================
+// ==================== BROADCAST ENDPOINT ====================
 app.post('/api/admin/broadcast', async (req, res) => {
   const { title, message, targetUserId } = req.body;
   const token = req.headers.authorization?.split('Bearer ')[1];
@@ -95,38 +99,38 @@ app.post('/api/admin/broadcast', async (req, res) => {
       return res.status(400).json({ error: 'Judul dan pesan harus diisi', success: false });
     }
     
+    // Cek Firebase siap
+    if (!firebaseInitialized) {
+      console.error('⚠️ Firebase not initialized, FCM push disabled');
+    }
+    
     // ========== KIRIM KE PETANI TERTENTU ==========
     if (targetUserId) {
-      const petani = await db.query('SELECT id, fcm_token FROM users WHERE id = $1 AND role = $2', [targetUserId, 'petani']);
+      const petani = await db.query('SELECT id, name, fcm_token FROM users WHERE id = $1 AND role = $2', [targetUserId, 'petani']);
       if (petani.rows.length === 0) {
         return res.status(404).json({ error: 'Petani tidak ditemukan', success: false });
       }
 
-      // Simpan ke database
       await db.query(
         `INSERT INTO notifications (user_id, title, body, type, is_read, created_at) 
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         [targetUserId, title, message, 'broadcast', false]
       );
       
-      // ✅ KIRIM FCM (Pastikan token valid)
       const fcmToken = petani.rows[0].fcm_token;
-      if (fcmToken && fcmToken.length > 50) {  // Token FCM minimal 50 karakter
+      if (fcmToken && fcmToken.length > 30 && firebaseInitialized) {
         try {
-          const fcmResponse = await admin.messaging().send({
+          await admin.messaging().send({
             token: fcmToken,
-            notification: {
-              title: title,
-              body: message,
-            },
+            notification: { title: title, body: message },
             android: { priority: 'high' },
           });
-          console.log('✅ FCM sent to:', targetUserId, fcmResponse);
+          console.log(`✅ FCM sent to ${petani.rows[0].name} (${targetUserId})`);
         } catch (fcmError) {
           console.error('FCM error:', fcmError.message);
         }
-      } else {
-        console.log('⚠️ Token tidak valid untuk petani:', targetUserId);
+      } else if (!firebaseInitialized) {
+        console.log('⚠️ FCM skipped: Firebase not initialized');
       }
       
       res.json({ success: true, message: 'Notifikasi terkirim ke petani' });
@@ -134,7 +138,7 @@ app.post('/api/admin/broadcast', async (req, res) => {
     }
     
     // ========== KIRIM KE SEMUA PETANI ==========
-    const users = await db.query("SELECT id, fcm_token FROM users WHERE role = 'petani' AND status = 'Aktif'");
+    const users = await db.query("SELECT id, name, fcm_token FROM users WHERE role = 'petani' AND status = 'Aktif'");
     const petaniList = users.rows || [];
     
     if (petaniList.length === 0) {
@@ -150,25 +154,29 @@ app.post('/api/admin/broadcast', async (req, res) => {
       );
     }
     
-    // ✅ KIRIM FCM KE SEMUA PETANI (satu per satu)
+    // Kirim FCM
     let fcmSentCount = 0;
-    for (const user of petaniList) {
-      const fcmToken = user.fcm_token;
-      if (fcmToken && fcmToken.length > 50) {
-        try {
-          await admin.messaging().send({
-            token: fcmToken,
-            notification: {
-              title: title,
-              body: message,
-            },
-            android: { priority: 'high' },
-          });
-          fcmSentCount++;
-        } catch (e) {
-          console.error(`FCM error for user ${user.id}:`, e.message);
+    if (firebaseInitialized) {
+      for (const user of petaniList) {
+        const fcmToken = user.fcm_token;
+        if (fcmToken && fcmToken.length > 30) {
+          try {
+            await admin.messaging().send({
+              token: fcmToken,
+              notification: { title: title, body: message },
+              android: { priority: 'high' },
+            });
+            fcmSentCount++;
+            console.log(`✅ FCM sent to ${user.name} (${user.id})`);
+          } catch (e) {
+            console.error(`❌ FCM failed for ${user.name}:`, e.message);
+          }
+        } else {
+          console.log(`⚠️ No valid token for ${user.name} (${user.id})`);
         }
       }
+    } else {
+      console.log('⚠️ Firebase not initialized, FCM push skipped');
     }
     
     console.log(`✅ Broadcast: ${petaniList.length} notif saved, ${fcmSentCount} FCM sent`);
