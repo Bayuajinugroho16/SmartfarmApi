@@ -13,7 +13,6 @@ app.use(cors());
 app.use(express.json());
 
 // ==================== INIT FIREBASE ADMIN ====================
-const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 let firebaseInitialized = false;
