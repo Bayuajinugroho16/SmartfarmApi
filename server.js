@@ -95,8 +95,8 @@ app.post('/api/admin/broadcast', async (req, res) => {
       return res.status(400).json({ error: 'Judul dan pesan harus diisi', success: false });
     }
     
+    // ========== KIRIM KE PETANI TERTENTU ==========
     if (targetUserId) {
-      // ========== KIRIM KE PETANI TERTENTU ==========
       const petani = await db.query('SELECT id, fcm_token FROM users WHERE id = $1 AND role = $2', [targetUserId, 'petani']);
       if (petani.rows.length === 0) {
         return res.status(404).json({ error: 'Petani tidak ditemukan', success: false });
@@ -111,7 +111,7 @@ app.post('/api/admin/broadcast', async (req, res) => {
       
       // Kirim FCM push notification jika ada token
       const fcmToken = petani.rows[0].fcm_token;
-      if (fcmToken && fcmToken.length > 0 && admin.apps.length > 0) {
+      if (fcmToken && fcmToken.length > 0) {
         try {
           await admin.messaging().send({
             token: fcmToken,
@@ -125,69 +125,66 @@ app.post('/api/admin/broadcast', async (req, res) => {
         } catch (fcmError) {
           console.error('FCM error:', fcmError.message);
         }
-      } else {
-        console.log('⚠️ No FCM token for petani:', targetUserId);
       }
       
       res.json({ success: true, message: 'Notifikasi terkirim ke petani' });
-      
-    } else {
-      // ========== KIRIM KE SEMUA PETANI ==========
-      const users = await db.query("SELECT id, fcm_token FROM users WHERE role = 'petani' AND status = 'Aktif'");
-      
-      if (users.rows.length === 0) {
-        return res.status(404).json({ error: 'Tidak ada petani aktif', success: false });
-      }
-      
-      // Simpan ke database untuk semua petani
-      for (const user of users.rows) {
-        await db.query(
-          `INSERT INTO notifications (user_id, title, body, type, is_read, created_at) 
-           VALUES ($1, $2, $3, $4, $5, NOW())`,
-          [user.id, title, message, 'broadcast', false]
-        );
-      }
-      console.log(`✅ Saved ${users.rows.length} notifications to database`);
-      
-      // Kirim FCM ke yang punya token valid (filter null & empty)
-      const validTokens = users.rows
-        .map(u => u.fcm_token)
-        .filter(t => t && t.length > 0);
-      
-      console.log(`📱 Found ${validTokens.length} valid FCM tokens out of ${users.rows.length} users`);
-      
-      if (validTokens.length > 0 && admin.apps.length > 0) {
-        let sentCount = 0;
-        let failCount = 0;
-        
-        // Kirim satu per satu (lebih aman dari multicast)
-        for (const fcmToken of validTokens) {
-          try {
-            await admin.messaging().send({
-              token: fcmToken,
-              notification: {
-                title: title,
-                body: message,
-              },
-              android: { priority: 'high' },
-            });
-            sentCount++;
-          } catch (e) {
-            failCount++;
-            console.error('FCM send error:', e.message);
-          }
-        }
-        
-        console.log(`✅ FCM sent to ${sentCount} devices, failed: ${failCount}`);
-      } else {
-        console.log('⚠️ No valid FCM tokens found to send push notification');
-      }
-      
-      res.json({ 
-        success: true, 
-        message: `Broadcast terkirim ke ${users.rows.length} petani (${validTokens.length} via FCM push)` 
-      });
+      return;
     }
+    
+    // ========== KIRIM KE SEMUA PETANI ==========
+    const users = await db.query("SELECT id, fcm_token FROM users WHERE role = 'petani' AND status = 'Aktif'");
+    
+    // Pastikan users.rows adalah array
+    const petaniList = users.rows || [];
+    
+    if (petaniList.length === 0) {
+      return res.status(404).json({ error: 'Tidak ada petani aktif', success: false });
+    }
+    
+    // Simpan ke database untuk semua petani
+    for (const user of petaniList) {
+      await db.query(
+        `INSERT INTO notifications (user_id, title, body, type, is_read, created_at) 
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [user.id, title, message, 'broadcast', false]
+      );
+    }
+    console.log(`✅ Saved ${petaniList.length} notifications to database`);
+    
+    // Filter token yang valid (tidak null, tidak kosong)
+    const validTokens = petaniList
+      .map(u => u.fcm_token)
+      .filter(t => t && typeof t === 'string' && t.length > 0);
+    
+    console.log(`📱 Total petani: ${petaniList.length}, Valid tokens: ${validTokens.length}`);
+    
+    // Kirim FCM ke token yang valid
+    if (validTokens.length > 0) {
+      let sentCount = 0;
+      for (const fcmToken of validTokens) {
+        try {
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+              title: title,
+              body: message,
+            },
+            android: { priority: 'high' },
+          });
+          sentCount++;
+        } catch (e) {
+          console.error('FCM send error:', e.message);
+        }
+      }
+      console.log(`✅ FCM sent to ${sentCount} devices`);
+    } else {
+      console.log('⚠️ No valid FCM tokens found');
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `Broadcast terkirim ke ${petaniList.length} petani (${validTokens.length} via FCM push)` 
+    });
     
   } catch (error) {
     console.error('Broadcast error:', error);
