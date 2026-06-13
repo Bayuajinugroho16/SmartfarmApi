@@ -15,42 +15,24 @@ app.use(cors());
 app.use(express.json());
 
 // ==================== INIT FIREBASE ADMIN ====================
+const admin = require('firebase-admin');
 let firebaseInitialized = false;
 
-try {
-  const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
-  console.log('📁 Looking for service account at:', serviceAccountPath);
-  
-  if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-    
+// Hanya dari environment variable
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     if (!admin.apps.length) {
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-      console.log('✅ Firebase Admin initialized from file');
-      firebaseInitialized = true;
-    } else {
-      console.log('✅ Firebase Admin already initialized');
+      console.log('✅ Firebase Admin initialized from env var');
       firebaseInitialized = true;
     }
-  } else {
-    console.log('⚠️ serviceAccountKey.json not found');
-    
-    // Fallback ke environment variable
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      if (!admin.apps.length) {
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-        });
-        console.log('✅ Firebase Admin initialized from env var');
-        firebaseInitialized = true;
-      }
-    }
+  } catch (error) {
+    console.error('❌ Env var parse error:', error.message);
+    console.error('First 100 chars:', process.env.FIREBASE_SERVICE_ACCOUNT?.substring(0, 100));
   }
-} catch (error) {
-  console.error('❌ Firebase Admin init error:', error.message);
 }
 
 if (!firebaseInitialized) {
