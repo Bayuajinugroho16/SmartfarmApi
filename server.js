@@ -2,9 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
-const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
+const admin = require('firebase-admin');
 
 dotenv.config();
 
@@ -15,25 +15,47 @@ app.use(cors());
 app.use(express.json());
 
 // ==================== INIT FIREBASE ADMIN ====================
-const admin = require('firebase-admin');
-let firebaseInitialized = false;
-
-// Hanya dari environment variable
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+function initializeFirebase() {
   try {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
-      console.log('✅ Firebase Admin initialized from env var');
-      firebaseInitialized = true;
+    let serviceAccount = null;
+    const envServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+    if (envServiceAccount) {
+      try {
+        serviceAccount = JSON.parse(envServiceAccount);
+        console.log('✅ Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT');
+      } catch (error) {
+        console.error('❌ FIREBASE_SERVICE_ACCOUNT is invalid JSON:', error.message);
+      }
     }
+
+    if (!serviceAccount) {
+      const fallbackPath = path.join(__dirname, 'serviceAccountKey.json');
+      if (fs.existsSync(fallbackPath)) {
+        serviceAccount = JSON.parse(fs.readFileSync(fallbackPath, 'utf8'));
+        console.log('✅ Firebase Admin initialized from serviceAccountKey.json');
+      }
+    }
+
+    if (!serviceAccount) {
+      console.warn('⚠️ No Firebase service account config found. FCM push disabled.');
+      return false;
+    }
+
+    if (admin.getApps().length === 0) {
+      admin.initializeApp({
+        credential: admin.cert(serviceAccount),
+      });
+    }
+
+    return true;
   } catch (error) {
-    console.error('❌ Env var parse error:', error.message);
-    console.error('First 100 chars:', process.env.FIREBASE_SERVICE_ACCOUNT?.substring(0, 100));
+    console.error('❌ Firebase Admin initialization failed:', error.message);
+    return false;
   }
 }
+
+const firebaseInitialized = initializeFirebase();
 
 if (!firebaseInitialized) {
   console.error('❌ Firebase Admin failed to initialize!');
